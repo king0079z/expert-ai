@@ -398,7 +398,7 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--tx);max-width:480px;
 const BASE='https://generativelanguage.googleapis.com/v1beta';
 const ML={'gemini-2.5-flash':'2.5 Flash','gemini-2.5-flash-lite-preview-06-17':'2.5 Lite','gemini-1.5-flash':'1.5 Flash','gemini-1.5-flash-8b':'1.5 Flash-8B'};
 let mdl='gemini-2.5-flash',cid=null,busy=false,rtimer=null,pq=null;
-let sr=null,rec=false,tx='',dpi=null,voiceUserStop=false;
+let sr=null,rec=false,tx='',dpi=null;
 
 function getApiKey(){return(localStorage.getItem('xai_gemini_key')||'').trim();}
 function syncApiFields(){const k=getApiKey();const a=document.getElementById('apiKeySetup'),b=document.getElementById('apiKeyIn');if(a)a.value=k;if(b)b.value=k;}
@@ -552,50 +552,22 @@ function cancelR(){if(rtimer){clearInterval(rtimer);rtimer=null;}document.getEle
 function grow(el){el.style.height='';el.style.height=Math.min(el.scrollHeight,100)+'px';}
 function onKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText();}}
 
-/* VOICE — merge overlapping/cumulative finals (Chrome/Android often emits repeated or extended phrases per index); only send after explicit stop */
-function mergeSpeechChunk(cur,raw){
-  let next=String(raw||'').replace(/^\s+/,'');
-  if(!next)return cur||'';
-  cur=cur||'';
-  const c=cur.trimEnd();
-  if(!c)return next;
-  if(next===c||c===next)return c;
-  if(c.endsWith(next))return c;
-  if(next.startsWith(c)||next.startsWith(c+' '))return next;
-  const max=Math.min(c.length,next.length,120);
-  for(let len=max;len>=1;len--){
-    if(c.slice(-len)===next.slice(0,len))return c+next.slice(len);
-  }
-  return c+' '+next;
-}
-function committedFromFinals(R){
-  let acc='';
-  for(let i=0;i<R.length;i++){
-    if(!R[i].isFinal)continue;
-    acc=mergeSpeechChunk(acc,R[i][0].transcript);
-  }
-  return acc.trim();
-}
-function latestInterim(R){
-  for(let i=R.length-1;i>=0;i--){
-    if(!R[i].isFinal)return R[i][0].transcript||'';
-  }
-  return'';
-}
-function stripOverlapPrefix(committed,interim){
-  if(!committed||!interim)return interim||'';
-  const c=committed.trimEnd(),t=interim;
-  if(t.startsWith(c))return t.slice(c.length);
-  return t;
+/* VOICE — MDN-style: append only NEW finals via resultIndex (avoids duplication). onend always completes the session (no “must tap stop” gate — Android fires onend on pause). */
+function joinPiece(cur,add){
+  const a=String(add||'').trim();if(!a)return cur;
+  const c=String(cur||'').trimEnd();if(!c)return a;
+  if(c===a||c.endsWith(a))return c;
+  if(a.startsWith(c)||a.startsWith(c+' '))return a;
+  return c+(/\s$/.test(c)||/^\s/.test(a)?'':' ')+a;
 }
 
 function toggleVoice(){if(rec){finishR2();return;}startV();}
 
 function startV(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  if(!SR){alert('Voice requires Chrome on Android.');return;}
+  if(!SR){alert('Voice input needs a Chromium-based browser (e.g. Chrome on Android).');return;}
   if(sr){try{sr.abort();}catch(e){}sr=null;}
-  tx='';voiceUserStop=false;
+  tx='';
   document.getElementById('tstrip').className='tstrip';
   document.getElementById('tstrip').textContent='';
   sr=new SR();
@@ -610,54 +582,58 @@ function startV(){
     document.getElementById('micon').textContent='⏹️';
     document.getElementById('tstrip').classList.add('on');
     document.getElementById('tstrip').textContent='Listening…';
-    setML('Listening… tap to stop','live');
+    setML('Listening… tap when done','live');
   };
 
   sr.onresult=e=>{
-    const R=e.results;
-    tx=committedFromFinals(R);
-    let int=stripOverlapPrefix(tx,latestInterim(R));
-    document.getElementById('tstrip').textContent=(tx+int).trim()||'Listening…';
+    try{
+      const R=e.results;
+      for(let i=e.resultIndex;i<R.length;i++){
+        const alt=R[i]&&R[i][0];if(!alt)continue;
+        if(R[i].isFinal)tx=joinPiece(tx,alt.transcript);
+      }
+      let int='';
+      for(let i=e.resultIndex;i<R.length;i++){
+        if(R[i].isFinal)continue;
+        const alt=R[i]&&R[i][0];if(alt)int+=alt.transcript;
+      }
+      document.getElementById('tstrip').textContent=(tx+int).trim()||'Listening…';
+    }catch(err){console.error('onresult',err);}
   };
 
   sr.onerror=e=>{
     console.log('SR error:',e.error);
-    voiceUserStop=false;
+    if(e.error==='aborted')return;
     rec=false;
     document.getElementById('mfab').classList.remove('rec');
     document.getElementById('micon').textContent='🎙️';
     if(e.error==='not-allowed'||e.error==='service-not-allowed'){
       document.getElementById('tstrip').classList.remove('on');
-      setML('Blocked — see fix','');
+      setML('Mic blocked','');
       he();
-      rb('sys','🎙️ Mic blocked by Chrome.\n\nFix: tap the lock/info icon in Chrome address bar → Site settings → Microphone → Allow → then tap mic again.\n\nBest fix: host on GitHub Pages (tap ← Setup guide).', null,true);
+      rb('sys','🎙️ Allow the microphone: tap 🔒 in the address bar → Site settings → Microphone → Allow.',null,true);
       return;
     }
-    if(e.error==='no-speech'){document.getElementById('tstrip').classList.remove('on');setML('No speech. Tap to retry.','');return;}
-    setML('Error: '+e.error+'. Tap to retry.','');
+    if(e.error==='no-speech'){document.getElementById('tstrip').classList.remove('on');setML('No speech heard. Tap to try again.','');return;}
+    setML('Voice error. Tap to retry.','');
     document.getElementById('tstrip').classList.remove('on');
   };
 
   sr.onend=()=>{
     document.getElementById('mfab').classList.remove('rec');
     document.getElementById('micon').textContent='🎙️';
-    const shouldSend=voiceUserStop;
-    voiceUserStop=false;
+    if(!rec)return;
     rec=false;
-    if(!shouldSend){
-      document.getElementById('tstrip').classList.remove('on');
-      setML('Tap to speak','');
-      return;
-    }
-    if(tx.trim()){setML('Sending…','done');setTimeout(()=>{const q=tx.trim();stopVC();sendQ(q);},150);}
+    const q=tx.trim();
+    if(q){setML('Sending…','done');setTimeout(()=>{stopVC();sendQ(q);},120);}
     else{document.getElementById('tstrip').classList.remove('on');setML('Tap to speak','');}
   };
 
-  try{sr.start();}catch(e){console.error(e);setML('Could not start. Tap to retry.','');}
+  try{sr.start();}catch(e){console.error(e);setML('Could not start mic. Tap to retry.','');rec=false;}
 }
 
-function finishR2(){if(sr){voiceUserStop=true;try{sr.stop();}catch(e){}}}
-function stopVC(){if(sr){try{sr.abort();}catch(e){}sr=null;}voiceUserStop=false;rec=false;tx='';document.getElementById('mfab').classList.remove('rec');document.getElementById('micon').textContent='🎙️';document.getElementById('tstrip').classList.remove('on');document.getElementById('tstrip').textContent='';setML('Tap to speak','');}
+function finishR2(){if(sr){try{sr.stop();}catch(e){}}}
+function stopVC(){if(sr){try{sr.abort();}catch(e){}sr=null;}rec=false;tx='';document.getElementById('mfab').classList.remove('rec');document.getElementById('micon').textContent='🎙️';document.getElementById('tstrip').classList.remove('on');document.getElementById('tstrip').textContent='';setML('Tap to speak','');}
 
 /* PWA */
 (function(){
@@ -669,7 +645,7 @@ function stopVC(){if(sr){try{sr.abort();}catch(e){}sr=null;}voiceUserStop=false;
   }catch(e){}
   if('serviceWorker' in navigator){
     try{
-      const code="const C='xai-v7';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('googleapis.com'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});";
+      const code="const C='xai-v8';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('googleapis.com'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});";
       const b2=new Blob([code],{type:'text/javascript'});
       navigator.serviceWorker.register(URL.createObjectURL(b2),{scope:'./'}).catch(()=>{});
     }catch(e){}
