@@ -561,15 +561,44 @@ function joinPiece(cur,add){
   return c+(/\s$/.test(c)||/^\s/.test(a)?'':' ')+a;
 }
 
-function toggleVoice(){if(rec){finishR2();return;}startV();}
+function isMobileUA(){return/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);}
 
-function startV(){
+/* Wake the device mic with voice-friendly processing before Web Speech (same mic phone/PC use in system settings). */
+async function preflightMic(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return true;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}
+    });
+    stream.getTracks().forEach(function(t){t.stop();});
+    return true;
+  }catch(e){
+    console.warn('Mic preflight:',e);
+    return false;
+  }
+}
+
+function toggleVoice(){if(rec){finishR2();return;}void startV();}
+
+async function startV(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){alert('Voice input needs a Chromium-based browser (e.g. Chrome on Android).');return;}
   if(sr){try{sr.abort();}catch(e){}sr=null;}
+  document.getElementById('tstrip').className='tstrip on';
+  document.getElementById('tstrip').textContent='Connecting mic…';
+  setML('Preparing microphone…','live');
+  const ok=await preflightMic();
+  if(!ok){
+    document.getElementById('tstrip').className='tstrip';
+    setML('Microphone blocked — allow access and try again','');
+    he();
+    rb('sys','🎙️ Allow the microphone for this site (address bar 🔒 → Site settings → Microphone), then tap the mic again.',null,true);
+    return;
+  }
   tx='';
   document.getElementById('tstrip').className='tstrip';
   document.getElementById('tstrip').textContent='';
+  const micLabel=isMobileUA()?'Phone microphone':'Computer microphone';
   sr=new SR();
   sr.lang=(navigator.language||'en-US').replace('_','-');
   sr.continuous=true;
@@ -582,7 +611,7 @@ function startV(){
     document.getElementById('micon').textContent='⏹️';
     document.getElementById('tstrip').classList.add('on');
     document.getElementById('tstrip').textContent='Listening…';
-    setML('Listening… tap when done','live');
+    setML('Listening ('+micLabel+') — tap when done','live');
   };
 
   sr.onresult=e=>{
@@ -645,7 +674,7 @@ function stopVC(){if(sr){try{sr.abort();}catch(e){}sr=null;}rec=false;tx='';docu
   }catch(e){}
   if('serviceWorker' in navigator){
     try{
-      const code="const C='xai-v8';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('googleapis.com'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});";
+      const code="const C='xai-v9';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('googleapis.com'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});";
       const b2=new Blob([code],{type:'text/javascript'});
       navigator.serviceWorker.register(URL.createObjectURL(b2),{scope:'./'}).catch(()=>{});
     }catch(e){}
