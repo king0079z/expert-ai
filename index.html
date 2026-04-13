@@ -103,6 +103,10 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--tx);max-width:480px;
 .go-btn{width:100%;padding:15px;background:linear-gradient(135deg,var(--ac),#8b5cf6);color:#fff;border:none;border-radius:var(--r);font-family:'Syne',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:opacity .15s,transform .1s}
 .go-btn:active{transform:scale(.98)}
 .go-btn:disabled{opacity:.3;pointer-events:none}
+.api-input{width:100%;padding:14px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);font-family:'Menlo','Courier New',monospace;font-size:13px;color:var(--tx);outline:none}
+.api-input:focus{border-color:var(--ac)}
+.set-btn{width:40px;height:40px;border-radius:12px;border:1px solid var(--bd);background:var(--sf2);font-size:20px;cursor:pointer;color:var(--tx);flex-shrink:0;line-height:1}
+.set-btn:active{background:var(--sf)}
 
 /* CHAT */
 .chd{display:flex;align-items:center;gap:11px;padding:13px 15px;background:var(--sf);border-bottom:1px solid var(--bd);flex-shrink:0;padding-top:max(13px,env(safe-area-inset-top))}
@@ -261,9 +265,14 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--tx);max-width:480px;
 <!-- HISTORY -->
 <div class="screen" id="s-hist">
   <div class="hist-head">
-    <div class="hlogo">✦</div>
-    <div class="htitle">Expert AI</div>
-    <div class="hsub2">Gemini-powered · conversations saved</div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      <div style="min-width:0">
+        <div class="hlogo">✦</div>
+        <div class="htitle">Expert AI</div>
+        <div class="hsub2">Gemini-powered · conversations saved</div>
+      </div>
+      <button type="button" class="set-btn" onclick="openSettings()" title="Settings">⚙</button>
+    </div>
   </div>
   <div class="hact">
     <button class="new-btn" onclick="newConv()">＋ &nbsp;New Conversation</button>
@@ -278,6 +287,11 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--tx);max-width:480px;
     <div class="shi"><div class="sht">New Conversation</div><div class="shs">Set up your AI expert</div></div>
   </div>
   <div class="sbdy">
+    <div>
+      <div class="lbl">Gemini API key</div>
+      <input type="password" class="api-input" id="apiKeySetup" placeholder="Paste key — stored only on this device" autocomplete="off" autocapitalize="off" spellcheck="false"/>
+      <div style="margin-top:8px"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="slink">Get a key · Google AI Studio</a></div>
+    </div>
     <div>
       <div class="lbl">Gemini Model (Free Tier)</div>
       <div class="mgrid">
@@ -310,6 +324,24 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--tx);max-width:480px;
       <div class="ccount" id="ccount">0 characters</div>
     </div>
     <button class="go-btn" id="go-btn" onclick="startConv()" disabled>Start Conversation →</button>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="screen" id="s-settings">
+  <div class="setup-head">
+    <button class="hbk" onclick="goHist()">←</button>
+    <div class="shi"><div class="sht">Settings</div><div class="shs">API key &amp; privacy</div></div>
+  </div>
+  <div class="sbdy">
+    <div class="notice">Keys are saved in this browser only (localStorage), not in the app’s source code. Anyone with access to this device can still read them — for a public site, use a server proxy.</div>
+    <div>
+      <div class="lbl">Gemini API key</div>
+      <input type="password" class="api-input" id="apiKeyIn" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false"/>
+      <div style="margin-top:8px"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" class="slink">Create or rotate key · AI Studio</a></div>
+    </div>
+    <button class="go-btn" type="button" onclick="saveApiKey()">Save API key</button>
+    <button class="skip-btn" type="button" onclick="clearApiKey()">Remove key from this device</button>
   </div>
 </div>
 
@@ -363,11 +395,16 @@ body{font-family:'DM Sans',system-ui,sans-serif;color:var(--tx);max-width:480px;
 
 <script>
 'use strict';
-const API_KEY='AIzaSyARL2JADaYF-l4tv49tuEfnx-1iXW9YbQ4';
 const BASE='https://generativelanguage.googleapis.com/v1beta';
 const ML={'gemini-2.5-flash':'2.5 Flash','gemini-2.5-flash-lite-preview-06-17':'2.5 Lite','gemini-1.5-flash':'1.5 Flash','gemini-1.5-flash-8b':'1.5 Flash-8B'};
 let mdl='gemini-2.5-flash',cid=null,busy=false,rtimer=null,pq=null;
-let sr=null,rec=false,tx='',dpi=null;
+let sr=null,rec=false,tx='',dpi=null,voiceUserStop=false;
+
+function getApiKey(){return(localStorage.getItem('xai_gemini_key')||'').trim();}
+function syncApiFields(){const k=getApiKey();const a=document.getElementById('apiKeySetup'),b=document.getElementById('apiKeyIn');if(a)a.value=k;if(b)b.value=k;}
+function openSettings(){syncApiFields();show('s-settings');}
+function saveApiKey(){const v=document.getElementById('apiKeyIn').value.trim();if(v.length<30||!v.startsWith('AIza')){alert('Paste a valid Gemini API key from Google AI Studio (starts with AIza).');return;}localStorage.setItem('xai_gemini_key',v);syncApiFields();alert('Saved. Key is stored only in this browser.');goHist();}
+function clearApiKey(){if(!confirm('Remove the API key from this browser?'))return;localStorage.removeItem('xai_gemini_key');syncApiFields();}
 
 function isSecure(){return location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1';}
 function enterApp(){localStorage.setItem('bg','1');show('s-hist');renderH();}
@@ -395,13 +432,16 @@ function renderH(){
   }).join('');
 }
 function doDel(id){if(confirm('Delete?')){dc(id);if(cid===id)cid=null;renderH();}}
-function newConv(){cid=null;document.getElementById('topic').value='';document.getElementById('ccount').textContent='0 characters';document.getElementById('ccount').className='ccount';document.getElementById('go-btn').disabled=true;mdl='gemini-2.5-flash';document.querySelectorAll('.mcard').forEach((c,i)=>c.classList.toggle('sel',i===0));show('s-setup');}
+function newConv(){cid=null;document.getElementById('topic').value='';document.getElementById('ccount').textContent='0 characters';document.getElementById('ccount').className='ccount';document.getElementById('go-btn').disabled=true;mdl='gemini-2.5-flash';document.querySelectorAll('.mcard').forEach((c,i)=>c.classList.toggle('sel',i===0));syncApiFields();show('s-setup');}
 function goHist(){cancelR();stopVC();renderH();show('s-hist');}
 
 /* SETUP */
 function pick(id,el){mdl=id;document.querySelectorAll('.mcard').forEach(c=>c.classList.remove('sel'));el.classList.add('sel');}
 function onTopic(){const v=document.getElementById('topic').value,cc=document.getElementById('ccount');cc.textContent=v.length.toLocaleString()+' characters';cc.className='ccount'+(v.length?' has':'');document.getElementById('go-btn').disabled=v.trim().length<10;}
 function startConv(){
+  const fromSetup=document.getElementById('apiKeySetup').value.trim();
+  if(fromSetup)localStorage.setItem('xai_gemini_key',fromSetup);
+  if(!getApiKey()){alert('Add your Gemini API key at the top (get one free from Google AI Studio).');return;}
   const tv=document.getElementById('topic').value.trim();if(tv.length<10)return;
   const id=uid(),first=tv.split('\n').map(l=>l.trim()).find(l=>l)||'Conversation';
   const conv={id,title:first.replace(/[#*_`]/g,'').slice(0,50),topic:tv,model:mdl,messages:[],createdAt:Date.now(),updatedAt:Date.now()};
@@ -440,16 +480,18 @@ async function sendText(){
 async function sendQ(q){if(!q||busy)return;he();am('user',q);await dc2(q);}
 
 async function dc2(q){
+  if(!getApiKey()){he();rb('sys','⚠️ Add your Gemini API key: tap ⚙ Settings.',null,true);setSub('● No API key','err');return;}
   sTyp();busy=true;document.getElementById('sndb').disabled=true;setSub('● Thinking…','busy');
   try{
     const conv=gc(cid),ans=await cg(q,conv);
     rTyp();am('ai',ans);setSub('● Ready','');
   }catch(e){
-    rTyp();const msg=e.message||'';
-    if(msg.includes('quota')||msg.includes('429')||msg.includes('RESOURCE_EXHAUSTED')){
+    rTyp();const msg=e.message||'',low=msg.toLowerCase();
+    if(low.includes('api key')||low.includes('leaked')||low.includes('api_key_invalid')){
+      rb('sys','⚠️ API key issue — create a new key in Google AI Studio, then ⚙ Settings → paste it here. Never commit keys to GitHub.',null,true);
+    }else if(msg.includes('quota')||msg.includes('429')||msg.includes('RESOURCE_EXHAUSTED')){
       const s=exR(msg)||35;setSub('● Rate limited','err');rb('sys','⏳ Rate limit hit. Auto-retrying in '+s+'s…',null,true);pq=q;startR(s,q);return;
-    }
-    if(msg.includes('not found')||msg.includes('404'))rb('sys','⚠️ Model unavailable. Go back, choose 2.5 Flash.',null,true);
+    }else if(msg.includes('not found')||msg.includes('404'))rb('sys','⚠️ Model unavailable. Go back, choose 2.5 Flash.',null,true);
     else rb('ai','⚠️ '+msg,null,true);
     setSub('● Error','err');
   }
@@ -486,7 +528,8 @@ async function cg(question,conv){
   const sys='You are an expert AI assistant. Answer questions ONLY based on the context below. If the answer is not in the context, say so clearly. Be concise and helpful. Use markdown for code.\n\n=== CONTEXT ===\n'+conv.topic+'\n=== END ===';
   const hist=(conv.messages||[]).filter(m=>m.role==='user'||m.role==='ai').map(m=>({role:m.role==='ai'?'model':'user',parts:[{text:m.content.replace(/<[^>]+>/g,'')}]}));
   hist.push({role:'user',parts:[{text:question}]});
-  const res=await fetch(BASE+'/models/'+mdl+':generateContent?key='+API_KEY,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_instruction:{parts:[{text:sys}]},contents:hist,generationConfig:{maxOutputTokens:2048,temperature:0.7}})});
+  const key=getApiKey();if(!key)throw new Error('Missing API key');
+  const res=await fetch(BASE+'/models/'+mdl+':generateContent?key='+encodeURIComponent(key),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system_instruction:{parts:[{text:sys}]},contents:hist,generationConfig:{maxOutputTokens:2048,temperature:0.7}})});
   if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e?.error?.message||'Error '+res.status);}
   const data=await res.json();
   if(data.promptFeedback?.blockReason)throw new Error('Blocked: '+data.promptFeedback.blockReason);
@@ -509,18 +552,35 @@ function cancelR(){if(rtimer){clearInterval(rtimer);rtimer=null;}document.getEle
 function grow(el){el.style.height='';el.style.height=Math.min(el.scrollHeight,100)+'px';}
 function onKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendText();}}
 
-/* VOICE — direct SpeechRecognition, no getUserMedia pre-check */
+/* VOICE — rebuild finals from full result list each event (fixes buggy resultIndex on some Android builds); only send after explicit stop */
+function joinFinals(results){
+  let out='';
+  for(let i=0;i<results.length;i++){
+    if(!results[i].isFinal)continue;
+    const t=results[i][0].transcript;
+    out+=(out&&!/\s$/.test(out)&&!/^\s/.test(t)?' ':'')+t;
+  }
+  return out.trim();
+}
+function joinInterim(results){
+  let out='';
+  for(let i=0;i<results.length;i++){
+    if(!results[i].isFinal)out+=results[i][0].transcript;
+  }
+  return out;
+}
+
 function toggleVoice(){if(rec){finishR2();return;}startV();}
 
 function startV(){
   const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){alert('Voice requires Chrome on Android.');return;}
   if(sr){try{sr.abort();}catch(e){}sr=null;}
-  tx='';
+  tx='';voiceUserStop=false;
   document.getElementById('tstrip').className='tstrip';
   document.getElementById('tstrip').textContent='';
   sr=new SR();
-  sr.lang='en-US';
+  sr.lang=(navigator.language||'en-US').replace('_','-');
   sr.continuous=true;
   sr.interimResults=true;
   sr.maxAlternatives=1;
@@ -535,24 +595,14 @@ function startV(){
   };
 
   sr.onresult=e=>{
-    /* Only process results from resultIndex onward — e.results is cumulative; re-looping 0..n re-appends every final chunk each event (runaway repetition). */
-    for(let i=e.resultIndex;i<e.results.length;i++){
-      const r=e.results[i];
-      if(r.isFinal){
-        const t=r[0].transcript;
-        tx+=(tx&&!/\s$/.test(tx)&&!/^\s/.test(t)?' ':'')+t;
-      }
-    }
-    let int='';
-    for(let i=0;i<e.results.length;i++){
-      if(!e.results[i].isFinal)int+=e.results[i][0].transcript;
-    }
-    const show=(tx+int).trim();
-    document.getElementById('tstrip').textContent=show||'Listening…';
+    tx=joinFinals(e.results);
+    const int=joinInterim(e.results);
+    document.getElementById('tstrip').textContent=(tx+int).trim()||'Listening…';
   };
 
   sr.onerror=e=>{
     console.log('SR error:',e.error);
+    voiceUserStop=false;
     rec=false;
     document.getElementById('mfab').classList.remove('rec');
     document.getElementById('micon').textContent='🎙️';
@@ -569,20 +619,25 @@ function startV(){
   };
 
   sr.onend=()=>{
-    if(rec){
-      rec=false;
-      document.getElementById('mfab').classList.remove('rec');
-      document.getElementById('micon').textContent='🎙️';
-      if(tx.trim()){setML('Sending…','done');setTimeout(()=>{const q=tx.trim();stopVC();sendQ(q);},150);}
-      else{document.getElementById('tstrip').classList.remove('on');setML('Tap to speak','');}
+    document.getElementById('mfab').classList.remove('rec');
+    document.getElementById('micon').textContent='🎙️';
+    const shouldSend=voiceUserStop;
+    voiceUserStop=false;
+    rec=false;
+    if(!shouldSend){
+      document.getElementById('tstrip').classList.remove('on');
+      setML('Tap to speak','');
+      return;
     }
+    if(tx.trim()){setML('Sending…','done');setTimeout(()=>{const q=tx.trim();stopVC();sendQ(q);},150);}
+    else{document.getElementById('tstrip').classList.remove('on');setML('Tap to speak','');}
   };
 
   try{sr.start();}catch(e){console.error(e);setML('Could not start. Tap to retry.','');}
 }
 
-function finishR2(){if(sr){try{sr.stop();}catch(e){}}}
-function stopVC(){if(sr){try{sr.abort();}catch(e){}sr=null;}rec=false;tx='';document.getElementById('mfab').classList.remove('rec');document.getElementById('micon').textContent='🎙️';document.getElementById('tstrip').classList.remove('on');document.getElementById('tstrip').textContent='';setML('Tap to speak','');}
+function finishR2(){if(sr){voiceUserStop=true;try{sr.stop();}catch(e){}}}
+function stopVC(){if(sr){try{sr.abort();}catch(e){}sr=null;}voiceUserStop=false;rec=false;tx='';document.getElementById('mfab').classList.remove('rec');document.getElementById('micon').textContent='🎙️';document.getElementById('tstrip').classList.remove('on');document.getElementById('tstrip').textContent='';setML('Tap to speak','');}
 
 /* PWA */
 (function(){
@@ -594,7 +649,7 @@ function stopVC(){if(sr){try{sr.abort();}catch(e){}sr=null;}rec=false;tx='';docu
   }catch(e){}
   if('serviceWorker' in navigator){
     try{
-      const code="const C='xai-v5';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('googleapis.com'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});";
+      const code="const C='xai-v6';self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method!=='GET'||e.request.url.includes('googleapis.com'))return;e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)));});";
       const b2=new Blob([code],{type:'text/javascript'});
       navigator.serviceWorker.register(URL.createObjectURL(b2),{scope:'./'}).catch(()=>{});
     }catch(e){}
